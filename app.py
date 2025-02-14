@@ -151,12 +151,13 @@ def download_audio(url, output_path):
         'no_color': True,
         'geo_bypass': True,
         'geo_bypass_country': 'BR',
+        'cookiesfrombrowser': ('chrome',),  # Tenta usar cookies do Chrome
         'extractor_args': {
             'youtube': {
                 'skip': ['dash', 'hls'],
                 'player_skip': ['js', 'configs', 'webpage']
             },
-            'facebook': {
+            'instagram': {
                 'skip': ['dash', 'hls'],
                 'player_skip': ['js', 'configs', 'webpage']
             },
@@ -167,14 +168,40 @@ def download_audio(url, output_path):
         },
         'format_sort': ['acodec:mp3', 'acodec:m4a', 'acodec:aac'],
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Encoding': 'gzip, deflate',
             'DNT': '1',
-            'Connection': 'keep-alive'
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1'
         }
     }
+    
+    # Adicionar configurações específicas baseadas na URL
+    if 'youtube.com' in url or 'youtu.be' in url:
+        ydl_opts.update({
+            'cookiesfrombrowser': ('chrome',),
+            'no_check_certificate': True
+        })
+    elif 'instagram.com' in url:
+        ydl_opts.update({
+            'cookiesfrombrowser': ('chrome',),
+            'add_header': [
+                'Cookie:sessionid=YOUR_SESSION_ID',
+                'User-Agent:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+            ]
+        })
+    elif 'tiktok.com' in url:
+        ydl_opts.update({
+            'cookiesfrombrowser': ('chrome',),
+            'extractor_retries': 3,
+            'no_check_certificate': True
+        })
     
     logger.info(f"Tentando baixar áudio do vídeo: {url}")
     
@@ -209,7 +236,14 @@ def download_audio(url, output_path):
             except yt_dlp.utils.DownloadError as e:
                 logger.error(f"Erro no yt-dlp: {str(e)}")
                 error_msg = str(e).lower()
-                if "video unavailable" in error_msg:
+                
+                if "sign in to confirm you're not a bot" in error_msg:
+                    return False, "Erro de verificação do YouTube. Por favor, tente novamente em alguns minutos."
+                elif "requested content is not available" in error_msg or "rate-limit reached" in error_msg:
+                    return False, "Conteúdo não disponível ou limite de requisições atingido. Tente novamente mais tarde."
+                elif "unable to extract sigi state" in error_msg:
+                    return False, "Erro ao acessar o TikTok. Por favor, tente novamente em alguns minutos."
+                elif "video unavailable" in error_msg:
                     return False, "O vídeo não está disponível ou é privado"
                 elif "sign in" in error_msg:
                     return False, "Este vídeo requer login para ser acessado"
