@@ -3,4 +3,5 @@ pytube==15.0.0
 numpy==1.24.3
 openai-whisper==20231117
 torch
-gunicorn 
+gunicorn
+werkzeug==2.0.1 
