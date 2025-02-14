@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, make_response
+from flask import Flask, render_template, request, jsonify, make_response, redirect, url_for
 import whisper
 import os
 import tempfile
@@ -21,6 +21,10 @@ MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 app.config['JSON_AS_ASCII'] = False
+
+# Criar diretório temp se não existir
+if not os.path.exists('temp'):
+    os.makedirs('temp')
 
 @app.errorhandler(Exception)
 def handle_error(error):
@@ -207,15 +211,30 @@ def download_audio(url, output_path):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        print(f"Erro ao renderizar index: {str(e)}")
+        return "Erro ao carregar a página inicial", 500
 
-@app.route('/transcrever')
+@app.route('/transcrever', methods=['GET'])
 def pagina_transcrever():
-    return render_template('transcrever.html')
+    try:
+        return render_template('transcrever.html')
+    except Exception as e:
+        print(f"Erro ao renderizar página de transcrição: {str(e)}")
+        return redirect(url_for('index'))
 
 @app.route('/transcrever', methods=['POST'])
 def transcrever_youtube():
     try:
+        if not request.form:
+            return make_response(
+                jsonify({'error': 'Dados não recebidos'}),
+                400,
+                {'Content-Type': 'application/json; charset=utf-8'}
+            )
+
         url = request.form.get('url')
         if not url:
             return make_response(
