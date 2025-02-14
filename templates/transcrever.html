@@ -315,18 +315,22 @@
                 const response = await fetch('/transcrever', {
                     method: 'POST',
                     body: formData,
-                    signal: controller.signal
+                    signal: controller.signal,
+                    headers: {
+                        'Accept': 'application/json'
+                    }
                 });
                 
                 clearTimeout(timeoutId);
-                
+
+                let data;
                 const contentType = response.headers.get('content-type');
-                if (!contentType || !contentType.includes('application/json')) {
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
                     throw new Error('Resposta do servidor não é JSON válido');
                 }
 
-                const data = await response.json();
-                
                 if (!response.ok) {
                     throw new Error(data.error || 'Erro ao processar o vídeo');
                 }
@@ -342,6 +346,7 @@
                     mostrarResultado(data.transcricao);
                 }
             } catch (error) {
+                console.error('Erro completo:', error);
                 if (error.name === 'AbortError') {
                     mostrarResultado('A requisição demorou muito tempo. Tente novamente.', true);
                 } else {
@@ -385,18 +390,22 @@
                 const response = await fetch('/transcrever_arquivo', {
                     method: 'POST',
                     body: formData,
-                    signal: controller.signal
+                    signal: controller.signal,
+                    headers: {
+                        'Accept': 'application/json'
+                    }
                 });
                 
                 clearTimeout(timeoutId);
-                
+
+                let data;
                 const contentType = response.headers.get('content-type');
-                if (!contentType || !contentType.includes('application/json')) {
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
                     throw new Error('Resposta do servidor não é JSON válido');
                 }
 
-                const data = await response.json();
-                
                 if (!response.ok) {
                     throw new Error(data.error || 'Erro ao processar o arquivo');
                 }
@@ -409,6 +418,7 @@
                     mostrarResultado(data.transcricao);
                 }
             } catch (error) {
+                console.error('Erro completo:', error);
                 if (error.name === 'AbortError') {
                     mostrarResultado('A requisição demorou muito tempo. Tente novamente.', true);
                 } else {
