@@ -1,9 +1,10 @@
 bind = "0.0.0.0:10000"
 workers = 1
-threads = 2
+threads = 1
 timeout = 120
 worker_class = "sync"
-preload_app = True
-max_requests = 1000
-max_requests_jitter = 50
-keepalive = 5 
+preload_app = False
+max_requests = 1
+max_requests_jitter = 0
+keepalive = 5
+worker_tmp_dir = "/dev/shm" 

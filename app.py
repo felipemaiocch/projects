@@ -7,6 +7,7 @@ import time
 from urllib.parse import parse_qs, urlparse
 import yt_dlp
 from werkzeug.utils import secure_filename
+import gc
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -19,62 +20,75 @@ MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
-# Carregar modelo Whisper globalmente
-logger.info("Carregando modelo Whisper...")
-whisper_model = whisper.load_model("tiny")
-logger.info("Modelo Whisper carregado com sucesso")
+def load_whisper_model():
+    """Carrega o modelo Whisper e retorna ele"""
+    logger.info("Carregando modelo Whisper...")
+    model = whisper.load_model("tiny")
+    logger.info("Modelo Whisper carregado com sucesso")
+    return model
+
+def unload_whisper_model(model):
+    """Descarrega o modelo Whisper da memória"""
+    del model
+    gc.collect()
+    logger.info("Modelo Whisper descarregado da memória")
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def get_video_id(url):
     """Extrai o ID do vídeo da URL de diferentes plataformas"""
-    parsed_url = urlparse(url)
-    
-    # YouTube
-    if parsed_url.hostname == 'youtu.be':
-        return 'youtube', parsed_url.path[1:]
-    if parsed_url.hostname in ('www.youtube.com', 'youtube.com'):
-        if parsed_url.path == '/watch':
-            return 'youtube', parse_qs(parsed_url.query)['v'][0]
-            
-    # Facebook
-    if 'facebook.com' in parsed_url.hostname or 'fb.watch' in parsed_url.hostname:
-        # Extrair ID do vídeo do Facebook da URL
-        if '/videos/' in parsed_url.path:
-            video_id = parsed_url.path.split('/videos/')[1].split('/')[0]
-            return 'facebook', video_id
-        elif 'fb.watch' in parsed_url.hostname:
-            return 'facebook', parsed_url.path[1:]
-        elif '/share/v/' in parsed_url.path:
-            # Novo formato de compartilhamento do Facebook
-            video_id = parsed_url.path.split('/share/v/')[1].split('/')[0]
-            return 'facebook', video_id
-        elif '/v/' in parsed_url.path:
-            # Formato alternativo de vídeo do Facebook
-            video_id = parsed_url.path.split('/v/')[1].split('/')[0]
-            return 'facebook', video_id
-            
-    # Instagram
-    if 'instagram.com' in parsed_url.hostname:
-        if '/reel/' in parsed_url.path or '/p/' in parsed_url.path:
-            # Extrair ID do post/reel do Instagram
-            parts = [p for p in parsed_url.path.split('/') if p]
-            if len(parts) >= 2:
-                return 'instagram', parts[1]
+    try:
+        parsed_url = urlparse(url)
+        
+        # YouTube
+        if parsed_url.hostname in ('youtu.be', 'www.youtube.com', 'youtube.com', 'm.youtube.com'):
+            if parsed_url.hostname == 'youtu.be':
+                return 'youtube', parsed_url.path[1:]
+            if parsed_url.path == '/watch':
+                query = parse_qs(parsed_url.query)
+                return 'youtube', query['v'][0]
+            if '/shorts/' in parsed_url.path:
+                return 'youtube', parsed_url.path.split('/shorts/')[1]
                 
-    # TikTok
-    if 'tiktok.com' in parsed_url.hostname or 'vm.tiktok.com' in parsed_url.hostname:
-        # Para URLs encurtadas do TikTok (vm.tiktok.com), usamos a URL completa como ID
-        # O yt-dlp vai resolver o redirecionamento automaticamente
-        if 'vm.tiktok.com' in parsed_url.hostname:
-            return 'tiktok', url
-        # Para URLs completas do TikTok
-        if '/video/' in parsed_url.path:
-            video_id = parsed_url.path.split('/video/')[1].split('/')[0]
-            return 'tiktok', video_id
-            
-    return None, None
+        # Facebook
+        if any(x in parsed_url.hostname for x in ['facebook.com', 'fb.watch', 'fb.com', 'm.facebook.com']):
+            if '/videos/' in parsed_url.path:
+                video_id = parsed_url.path.split('/videos/')[1].split('/')[0]
+                return 'facebook', video_id
+            elif 'fb.watch' in parsed_url.hostname or '/watch/' in parsed_url.path:
+                if 'v=' in parsed_url.query:
+                    return 'facebook', parse_qs(parsed_url.query)['v'][0]
+                return 'facebook', parsed_url.path.split('/')[-1]
+            elif '/reel/' in parsed_url.path:
+                return 'facebook', parsed_url.path.split('/reel/')[1].split('/')[0]
+                
+        # Instagram
+        if 'instagram.com' in parsed_url.hostname:
+            if '/reel/' in parsed_url.path:
+                return 'instagram', parsed_url.path.split('/reel/')[1].split('/')[0]
+            elif '/p/' in parsed_url.path:
+                return 'instagram', parsed_url.path.split('/p/')[1].split('/')[0]
+            elif '/tv/' in parsed_url.path:
+                return 'instagram', parsed_url.path.split('/tv/')[1].split('/')[0]
+                
+        # TikTok
+        if any(x in parsed_url.hostname for x in ['tiktok.com', 'vm.tiktok.com', 'm.tiktok.com']):
+            if 'vm.tiktok.com' in parsed_url.hostname:
+                return 'tiktok', url
+            if '/video/' in parsed_url.path:
+                return 'tiktok', parsed_url.path.split('/video/')[1].split('/')[0]
+            if '@' in parsed_url.path and '/video/' not in parsed_url.path:
+                parts = [p for p in parsed_url.path.split('/') if p]
+                if len(parts) >= 2:
+                    return 'tiktok', parts[-1]
+                    
+        logger.error(f"URL não suportada: {url}")
+        return None, None
+        
+    except Exception as e:
+        logger.error(f"Erro ao extrair ID do vídeo: {str(e)}")
+        return None, None
 
 def download_audio(url, output_path):
     """Baixa o áudio do vídeo usando yt-dlp"""
@@ -97,45 +111,82 @@ def download_audio(url, output_path):
         'no_color': True,
         'geo_bypass': True,
         'geo_bypass_country': 'BR',
-        # Cookies e headers adicionais para melhor compatibilidade
-        'cookiefile': None,
+        'extractor_args': {
+            'youtube': {
+                'skip': ['dash', 'hls'],
+                'player_skip': ['js', 'configs', 'webpage']
+            },
+            'facebook': {
+                'skip': ['dash', 'hls'],
+                'player_skip': ['js', 'configs', 'webpage']
+            },
+            'tiktok': {
+                'skip': ['dash', 'hls'],
+                'player_skip': ['js', 'configs', 'webpage']
+            }
+        },
+        'format_sort': ['acodec:mp3', 'acodec:m4a', 'acodec:aac'],
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive'
         }
     }
     
     logger.info(f"Tentando baixar áudio do vídeo: {url}")
     
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        try:
-            logger.info("Extraindo informações do vídeo...")
-            info = ydl.extract_info(url, download=False)
-            
-            if not info:
-                logger.error("Não foi possível obter informações do vídeo")
-                return False, "Não foi possível obter informações do vídeo"
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            try:
+                logger.info("Extraindo informações do vídeo...")
+                info = ydl.extract_info(url, download=False)
                 
-            duration = info.get('duration', 0)
-            logger.info(f"Duração do vídeo: {duration} segundos")
-            
-            if duration > 1800:  # 30 minutos
-                return False, "O vídeo deve ter no máximo 30 minutos"
-            
-            logger.info("Iniciando download do áudio...")
-            ydl.download([url])
-            
-            # Verificar se o arquivo foi criado corretamente
-            final_path = f"{output_path}.mp3"
-            if not os.path.exists(final_path):
-                logger.error(f"Arquivo de áudio não encontrado em: {final_path}")
-                return False, "Erro ao salvar o arquivo de áudio"
+                if not info:
+                    logger.error("Não foi possível obter informações do vídeo")
+                    return False, "Não foi possível obter informações do vídeo"
+                    
+                duration = info.get('duration', 0)
+                logger.info(f"Duração do vídeo: {duration} segundos")
                 
-            logger.info(f"Arquivo de áudio salvo em: {final_path}")
-            return True, None
-            
-        except Exception as e:
-            logger.error(f"Erro durante o download: {str(e)}")
-            return False, str(e)
+                if duration > 1800:  # 30 minutos
+                    return False, "O vídeo deve ter no máximo 30 minutos"
+                
+                logger.info("Iniciando download do áudio...")
+                ydl.download([url])
+                
+                # Verificar se o arquivo foi criado corretamente
+                final_path = f"{output_path}.mp3"
+                if not os.path.exists(final_path):
+                    logger.error(f"Arquivo de áudio não encontrado em: {final_path}")
+                    return False, "Erro ao salvar o arquivo de áudio"
+                    
+                logger.info(f"Arquivo de áudio salvo em: {final_path}")
+                return True, None
+                
+            except yt_dlp.utils.DownloadError as e:
+                logger.error(f"Erro no yt-dlp: {str(e)}")
+                error_msg = str(e).lower()
+                if "video unavailable" in error_msg:
+                    return False, "O vídeo não está disponível ou é privado"
+                elif "sign in" in error_msg:
+                    return False, "Este vídeo requer login para ser acessado"
+                elif "copyright" in error_msg:
+                    return False, "Este vídeo não está disponível devido a restrições de direitos autorais"
+                elif "geo" in error_msg:
+                    return False, "Este vídeo não está disponível na sua região"
+                elif "removed" in error_msg:
+                    return False, "Este vídeo foi removido da plataforma"
+                elif "private" in error_msg:
+                    return False, "Este vídeo é privado"
+                else:
+                    return False, "Erro ao baixar o vídeo. Verifique se ele está disponível e é público"
+                
+    except Exception as e:
+        logger.error(f"Erro durante o download: {str(e)}")
+        return False, f"Erro inesperado: {str(e)}"
 
 @app.route('/')
 def index():
@@ -174,8 +225,10 @@ def transcrever():
                 audio_file = f"{audio_base}.mp3"
                 logger.info("Áudio baixado com sucesso")
 
-                # Transcrever áudio usando o modelo global
-                result = whisper_model.transcribe(audio_file)
+                # Carregar modelo, transcrever e descarregar
+                model = load_whisper_model()
+                result = model.transcribe(audio_file)
+                unload_whisper_model(model)
                 logger.info("Transcrição concluída")
 
                 return jsonify({"transcricao": result["text"]})
@@ -216,8 +269,10 @@ def transcrever_arquivo():
                 arquivo.save(audio_path)
                 logger.info(f"Arquivo salvo em: {audio_path}")
 
-                # Transcrever áudio usando o modelo global
-                result = whisper_model.transcribe(audio_path)
+                # Carregar modelo, transcrever e descarregar
+                model = load_whisper_model()
+                result = model.transcribe(audio_path)
+                unload_whisper_model(model)
                 logger.info("Transcrição do arquivo concluída")
 
                 return jsonify({"transcricao": result["text"]})

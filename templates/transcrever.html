@@ -315,25 +315,26 @@
                 const response = await fetch('/transcrever', {
                     method: 'POST',
                     body: formData,
-                    signal: controller.signal,
-                    headers: {
-                        'Cache-Control': 'no-cache',
-                        'Pragma': 'no-cache'
-                    }
+                    signal: controller.signal
                 });
                 
                 clearTimeout(timeoutId);
+                
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Resposta do servidor não é JSON válido');
+                }
 
+                const data = await response.json();
+                
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Erro ao processar o vídeo');
+                    throw new Error(data.error || 'Erro ao processar o vídeo');
                 }
 
                 atualizarStatus(loading, '2/3 Extraindo áudio...');
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 
                 atualizarStatus(loading, '3/3 Transcrevendo áudio...');
-                const data = await response.json();
                 
                 if (data.error) {
                     mostrarResultado(data.error, true);
@@ -384,22 +385,23 @@
                 const response = await fetch('/transcrever_arquivo', {
                     method: 'POST',
                     body: formData,
-                    signal: controller.signal,
-                    headers: {
-                        'Cache-Control': 'no-cache',
-                        'Pragma': 'no-cache'
-                    }
+                    signal: controller.signal
                 });
                 
                 clearTimeout(timeoutId);
                 
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Resposta do servidor não é JSON válido');
+                }
+
+                const data = await response.json();
+                
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Erro ao processar o arquivo');
+                    throw new Error(data.error || 'Erro ao processar o arquivo');
                 }
 
                 atualizarStatus(loading, '2/2 Transcrevendo áudio...');
-                const data = await response.json();
                 
                 if (data.error) {
                     mostrarResultado(data.error, true);
