@@ -21,7 +21,7 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
 # Carregar modelo Whisper globalmente
 logger.info("Carregando modelo Whisper...")
-whisper_model = whisper.load_model("base")
+whisper_model = whisper.load_model("tiny")
 logger.info("Modelo Whisper carregado com sucesso")
 
 def allowed_file(filename):
