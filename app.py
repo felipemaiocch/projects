@@ -285,6 +285,8 @@ def pagina_transcrever():
 @app.route('/transcrever', methods=['POST'])
 def transcrever_youtube():
     try:
+        logger.info("Iniciando requisição POST /transcrever")
+        
         if not request.form:
             logger.error("Nenhum dado recebido no formulário")
             return make_response(
@@ -303,6 +305,11 @@ def transcrever_youtube():
             )
 
         logger.info(f"Iniciando download do vídeo: {url}")
+        
+        # Criar diretório temp se não existir
+        if not os.path.exists(TEMP_DIR):
+            os.makedirs(TEMP_DIR)
+            logger.info(f"Diretório temporário criado: {TEMP_DIR}")
         
         ydl_opts = {
             'format': 'bestaudio/best',
@@ -330,13 +337,44 @@ def transcrever_youtube():
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                logger.info("Extraindo informações do vídeo...")
                 info = ydl.extract_info(url, download=True)
+                if not info:
+                    logger.error("Não foi possível obter informações do vídeo")
+                    return make_response(
+                        jsonify({'error': 'Não foi possível obter informações do vídeo'}),
+                        400,
+                        {'Content-Type': 'application/json; charset=utf-8'}
+                    )
+                
                 audio_path = os.path.join(TEMP_DIR, f"{info['id']}.mp3")
                 logger.info(f"Áudio baixado com sucesso: {audio_path}")
+                
+                if not os.path.exists(audio_path):
+                    logger.error(f"Arquivo de áudio não encontrado: {audio_path}")
+                    return make_response(
+                        jsonify({'error': 'Erro ao salvar o arquivo de áudio'}),
+                        500,
+                        {'Content-Type': 'application/json; charset=utf-8'}
+                    )
+                
         except Exception as e:
             logger.error(f"Erro no download do vídeo: {str(e)}")
+            error_msg = str(e).lower()
+            
+            if "sign in to confirm you're not a bot" in error_msg:
+                msg = "Erro de verificação do YouTube. Por favor, tente novamente em alguns minutos."
+            elif "requested content is not available" in error_msg or "rate-limit reached" in error_msg:
+                msg = "Conteúdo não disponível ou limite de requisições atingido. Tente novamente mais tarde."
+            elif "unable to extract sigi state" in error_msg:
+                msg = "Erro ao acessar o TikTok. Por favor, tente novamente em alguns minutos."
+            elif "video unavailable" in error_msg:
+                msg = "O vídeo não está disponível ou é privado"
+            else:
+                msg = "Erro ao baixar o vídeo. Verifique se ele está disponível e é público"
+            
             return make_response(
-                jsonify({'error': 'Não foi possível baixar o áudio. Verifique se o vídeo está disponível.'}),
+                jsonify({'error': msg}),
                 400,
                 {'Content-Type': 'application/json; charset=utf-8'}
             )
@@ -352,11 +390,14 @@ def transcrever_youtube():
                 logger.info("Arquivo de áudio temporário removido")
             
             logger.info("Transcrição concluída com sucesso")
-            return make_response(
+            response = make_response(
                 jsonify({'transcricao': result['text']}),
                 200,
                 {'Content-Type': 'application/json; charset=utf-8'}
             )
+            logger.info("Resposta preparada com sucesso")
+            return response
+            
         except Exception as e:
             logger.error(f"Erro na transcrição: {str(e)}")
             if os.path.exists(audio_path):
@@ -369,6 +410,7 @@ def transcrever_youtube():
 
     except Exception as e:
         logger.error(f"Erro geral: {str(e)}")
+        logger.error(f"Traceback completo: {traceback.format_exc()}")
         return make_response(
             jsonify({'error': 'Erro ao processar a requisição'}),
             500,

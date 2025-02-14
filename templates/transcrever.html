@@ -312,6 +312,7 @@
 
                 atualizarStatus(loading, '1/3 Baixando o vídeo...');
                 
+                console.log('Iniciando requisição para:', '/transcrever');
                 const response = await fetch('/transcrever', {
                     method: 'POST',
                     body: formData,
@@ -322,12 +323,20 @@
                 });
                 
                 clearTimeout(timeoutId);
+                console.log('Status da resposta:', response.status);
+                console.log('Headers:', Object.fromEntries(response.headers.entries()));
 
                 let data;
                 const contentType = response.headers.get('content-type');
-                if (contentType && contentType.includes('application/json')) {
-                    data = await response.json();
-                } else {
+                console.log('Content-Type:', contentType);
+                
+                const responseText = await response.text();
+                console.log('Resposta bruta:', responseText);
+                
+                try {
+                    data = JSON.parse(responseText);
+                } catch (e) {
+                    console.error('Erro ao fazer parse do JSON:', e);
                     throw new Error('Resposta do servidor não é JSON válido');
                 }
 
