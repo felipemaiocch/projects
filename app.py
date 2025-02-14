@@ -445,5 +445,13 @@ def transcrever_arquivo():
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
-    logger.info(f"Servidor iniciando na porta {port}")
-    app.run(host='0.0.0.0', port=port, debug=False) 
+    logger.info(f"Iniciando servidor na porta {port}")
+    logger.info(f"Variáveis de ambiente:")
+    logger.info(f"PORT={os.environ.get('PORT', 'não definido')}")
+    logger.info(f"PWD={os.getcwd()}")
+    
+    try:
+        app.run(host='0.0.0.0', port=port, debug=False)
+    except Exception as e:
+        logger.error(f"Erro ao iniciar servidor: {str(e)}")
+        raise 
