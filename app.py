@@ -9,27 +9,42 @@ import yt_dlp
 from werkzeug.utils import secure_filename
 import gc
 import traceback
+import shutil
 
 # Configurar logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Configurações para upload de arquivos
 ALLOWED_EXTENSIONS = {'mp3', 'wav', 'ogg', 'm4a', 'wma', 'aac'}
 MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
+TEMP_DIR = os.path.join(os.getcwd(), 'temp')
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 app.config['JSON_AS_ASCII'] = False
 
-# Criar diretório temp se não existir
-if not os.path.exists('temp'):
-    os.makedirs('temp')
+# Criar e limpar diretório temp
+def setup_temp_directory():
+    try:
+        if os.path.exists(TEMP_DIR):
+            shutil.rmtree(TEMP_DIR)
+        os.makedirs(TEMP_DIR)
+        logger.info(f"Diretório temporário criado em: {TEMP_DIR}")
+    except Exception as e:
+        logger.error(f"Erro ao configurar diretório temporário: {str(e)}")
+        raise
+
+# Configurar diretório temp na inicialização
+setup_temp_directory()
 
 @app.errorhandler(Exception)
 def handle_error(error):
-    print("Erro não tratado:", str(error))
-    print("Traceback completo:", traceback.format_exc())
+    logger.error(f"Erro não tratado: {str(error)}")
+    logger.error(f"Traceback completo: {traceback.format_exc()}")
     return make_response(
         jsonify({
             'error': 'Ocorreu um erro inesperado. Por favor, tente novamente.',
@@ -41,18 +56,22 @@ def handle_error(error):
 
 def load_whisper_model():
     try:
+        logger.info("Carregando modelo Whisper...")
         model = whisper.load_model("tiny")
+        logger.info("Modelo Whisper carregado com sucesso")
         return model
     except Exception as e:
-        print("Erro ao carregar modelo:", str(e))
+        logger.error(f"Erro ao carregar modelo Whisper: {str(e)}")
         raise Exception("Não foi possível carregar o modelo de transcrição")
 
 def unload_whisper_model(model):
     try:
+        logger.info("Descarregando modelo Whisper...")
         del model
         gc.collect()
+        logger.info("Modelo Whisper descarregado com sucesso")
     except Exception as e:
-        print("Erro ao descarregar modelo:", str(e))
+        logger.error(f"Erro ao descarregar modelo: {str(e)}")
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -214,7 +233,7 @@ def index():
     try:
         return render_template('index.html')
     except Exception as e:
-        print(f"Erro ao renderizar index: {str(e)}")
+        logger.error(f"Erro ao renderizar index: {str(e)}")
         return "Erro ao carregar a página inicial", 500
 
 @app.route('/transcrever', methods=['GET'])
@@ -222,13 +241,14 @@ def pagina_transcrever():
     try:
         return render_template('transcrever.html')
     except Exception as e:
-        print(f"Erro ao renderizar página de transcrição: {str(e)}")
+        logger.error(f"Erro ao renderizar página de transcrição: {str(e)}")
         return redirect(url_for('index'))
 
 @app.route('/transcrever', methods=['POST'])
 def transcrever_youtube():
     try:
         if not request.form:
+            logger.error("Nenhum dado recebido no formulário")
             return make_response(
                 jsonify({'error': 'Dados não recebidos'}),
                 400,
@@ -237,12 +257,15 @@ def transcrever_youtube():
 
         url = request.form.get('url')
         if not url:
+            logger.error("URL não fornecida")
             return make_response(
                 jsonify({'error': 'URL não fornecida'}),
                 400,
                 {'Content-Type': 'application/json; charset=utf-8'}
             )
 
+        logger.info(f"Iniciando download do vídeo: {url}")
+        
         ydl_opts = {
             'format': 'bestaudio/best',
             'postprocessors': [{
@@ -250,16 +273,30 @@ def transcrever_youtube():
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
             }],
-            'outtmpl': 'temp/%(id)s.%(ext)s',
-            'quiet': True
+            'outtmpl': os.path.join(TEMP_DIR, '%(id)s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': False,
+            'extract_audio': True,
+            'nocheckcertificate': True,
+            'ignoreerrors': False,
+            'geo_bypass': True,
+            'geo_bypass_country': 'BR',
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate',
+                'DNT': '1'
+            }
         }
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-                audio_path = f"temp/{info['id']}.mp3"
+                audio_path = os.path.join(TEMP_DIR, f"{info['id']}.mp3")
+                logger.info(f"Áudio baixado com sucesso: {audio_path}")
         except Exception as e:
-            print("Erro no download:", str(e))
+            logger.error(f"Erro no download do vídeo: {str(e)}")
             return make_response(
                 jsonify({'error': 'Não foi possível baixar o áudio. Verifique se o vídeo está disponível.'}),
                 400,
@@ -267,19 +304,23 @@ def transcrever_youtube():
             )
 
         try:
+            logger.info("Iniciando transcrição do áudio")
             model = load_whisper_model()
             result = model.transcribe(audio_path)
             unload_whisper_model(model)
             
-            os.remove(audio_path)
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
+                logger.info("Arquivo de áudio temporário removido")
             
+            logger.info("Transcrição concluída com sucesso")
             return make_response(
                 jsonify({'transcricao': result['text']}),
                 200,
                 {'Content-Type': 'application/json; charset=utf-8'}
             )
         except Exception as e:
-            print("Erro na transcrição:", str(e))
+            logger.error(f"Erro na transcrição: {str(e)}")
             if os.path.exists(audio_path):
                 os.remove(audio_path)
             return make_response(
@@ -289,7 +330,7 @@ def transcrever_youtube():
             )
 
     except Exception as e:
-        print("Erro geral:", str(e))
+        logger.error(f"Erro geral: {str(e)}")
         return make_response(
             jsonify({'error': 'Erro ao processar a requisição'}),
             500,
@@ -300,6 +341,7 @@ def transcrever_youtube():
 def transcrever_arquivo():
     try:
         if 'audio' not in request.files:
+            logger.error("Nenhum arquivo recebido")
             return make_response(
                 jsonify({'error': 'Nenhum arquivo enviado'}),
                 400,
@@ -308,30 +350,45 @@ def transcrever_arquivo():
 
         audio_file = request.files['audio']
         if audio_file.filename == '':
+            logger.error("Nome do arquivo vazio")
             return make_response(
                 jsonify({'error': 'Nome do arquivo vazio'}),
                 400,
                 {'Content-Type': 'application/json; charset=utf-8'}
             )
 
+        if not allowed_file(audio_file.filename):
+            logger.error(f"Tipo de arquivo não permitido: {audio_file.filename}")
+            return make_response(
+                jsonify({'error': f'Tipo de arquivo não permitido. Use: {", ".join(ALLOWED_EXTENSIONS)}'}),
+                400,
+                {'Content-Type': 'application/json; charset=utf-8'}
+            )
+
         filename = secure_filename(audio_file.filename)
-        audio_path = os.path.join('temp', filename)
+        audio_path = os.path.join(TEMP_DIR, filename)
+        
+        logger.info(f"Salvando arquivo: {audio_path}")
         audio_file.save(audio_path)
 
         try:
+            logger.info("Iniciando transcrição do arquivo")
             model = load_whisper_model()
             result = model.transcribe(audio_path)
             unload_whisper_model(model)
             
-            os.remove(audio_path)
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
+                logger.info("Arquivo temporário removido")
             
+            logger.info("Transcrição concluída com sucesso")
             return make_response(
                 jsonify({'transcricao': result['text']}),
                 200,
                 {'Content-Type': 'application/json; charset=utf-8'}
             )
         except Exception as e:
-            print("Erro na transcrição:", str(e))
+            logger.error(f"Erro na transcrição: {str(e)}")
             if os.path.exists(audio_path):
                 os.remove(audio_path)
             return make_response(
@@ -341,7 +398,7 @@ def transcrever_arquivo():
             )
 
     except Exception as e:
-        print("Erro geral:", str(e))
+        logger.error(f"Erro geral: {str(e)}")
         return make_response(
             jsonify({'error': 'Erro ao processar o arquivo'}),
             500,
@@ -350,5 +407,5 @@ def transcrever_arquivo():
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5001))
-    print(f"Servidor iniciando... Acesse http://localhost:{port} no seu navegador")
+    logger.info(f"Servidor iniciando na porta {port}")
     app.run(host='0.0.0.0', port=port) 
