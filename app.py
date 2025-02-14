@@ -10,11 +10,15 @@ from werkzeug.utils import secure_filename
 import gc
 import traceback
 import shutil
+import sys
 
 # Configurar logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -440,6 +444,6 @@ def transcrever_arquivo():
         )
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5001))
+    port = int(os.environ.get("PORT", 10000))
     logger.info(f"Servidor iniciando na porta {port}")
-    app.run(host='0.0.0.0', port=port) 
+    app.run(host='0.0.0.0', port=port, debug=False) 

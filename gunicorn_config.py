@@ -2,7 +2,8 @@ import multiprocessing
 import os
 
 # Configurações básicas
-bind = "0.0.0.0:10000"
+port = int(os.environ.get("PORT", 10000))
+bind = f"0.0.0.0:{port}"
 workers = 1
 threads = 1
 worker_class = "sync"
@@ -44,11 +45,12 @@ proxy_protocol = True
 # Hooks
 def on_starting(server):
     """Log quando o servidor está iniciando"""
-    print("Servidor Gunicorn iniciando...")
+    print(f"Servidor Gunicorn iniciando na porta {port}...")
     # Criar diretório temp se não existir
     temp_dir = os.path.join(os.getcwd(), 'temp')
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir)
+    print(f"Diretório temporário criado em: {temp_dir}")
 
 def on_exit(server):
     """Limpar recursos quando o servidor é finalizado"""
@@ -65,4 +67,4 @@ def on_exit(server):
 
 def post_worker_init(worker):
     """Configurações após inicialização do worker"""
-    print(f"Worker {worker.pid} iniciado") 
+    print(f"Worker {worker.pid} iniciado na porta {port}") 
