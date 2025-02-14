@@ -6,23 +6,23 @@ port = int(os.environ.get("PORT", 10000))
 bind = f"0.0.0.0:{port}"
 print(f"Configurando Gunicorn para escutar na porta {port}")
 
+# Configurações de workers
 workers = 1
-threads = 1
-worker_class = "sync"
+threads = 4
+worker_class = "gthread"
+worker_connections = 1000
 
 # Timeouts
-timeout = 600  # 10 minutos
+timeout = 0  # Sem timeout
 keepalive = 2
-graceful_timeout = 60
 
 # Configurações de reinicialização
-max_requests = 10
-max_requests_jitter = 3
-preload_app = True  # Alterado para True para garantir que a app seja carregada
+max_requests = 0  # Desativado
+max_requests_jitter = 0
+preload_app = True
 
 # Configurações de memória e arquivos temporários
-worker_tmp_dir = "/tmp"  # Alterado para /tmp que é garantido existir
-worker_connections = 50
+worker_tmp_dir = "/tmp"
 limit_request_line = 0
 limit_request_fields = 32768
 limit_request_field_size = 0
@@ -30,26 +30,26 @@ limit_request_field_size = 0
 # Configurações de log
 errorlog = "-"
 accesslog = "-"
-access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
-loglevel = "debug"
+loglevel = "info"
+access_log_format = '%({x-forwarded-for}i)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
 capture_output = True
 enable_stdio_inheritance = True
 
 # Configurações de debug
 spew = False
-check_config = False  # Desativado para evitar verificações extras
+check_config = False
 
 # Configurações de buffer
 forwarded_allow_ips = '*'
-proxy_allow_ips = '*'
-proxy_protocol = False  # Alterado para False para simplificar
+proxy_protocol = False
 
 def on_starting(server):
     """Log quando o servidor está iniciando"""
-    print(f"[INFO] Servidor Gunicorn iniciando na porta {port}...")
+    print(f"[INFO] Servidor Gunicorn iniciando na porta {port}")
     print(f"[INFO] Bind configurado para: {bind}")
     print(f"[INFO] Variáveis de ambiente:")
     print(f"PORT={os.environ.get('PORT', 'não definido')}")
+    print(f"PWD={os.getcwd()}")
     
     # Criar diretório temp se não existir
     temp_dir = os.path.join(os.getcwd(), 'temp')
@@ -73,4 +73,8 @@ def on_exit(server):
 def post_worker_init(worker):
     """Configurações após inicialização do worker"""
     print(f"[INFO] Worker {worker.pid} iniciado e escutando na porta {port}")
-    print(f"[INFO] Configuração de bind atual: {bind}") 
+    print(f"[INFO] Configuração de bind atual: {bind}")
+
+def worker_exit(server, worker):
+    """Executado quando um worker é finalizado"""
+    print(f"[INFO] Worker {worker.pid} finalizado") 
